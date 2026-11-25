@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forklift Ranging Demo</title>
+<style>
+:root{
+  --bg:#13171c; --text:#eef2f6; --muted:#8f9aa7; --faint:#5d6773;
+  --panel:rgba(12,16,21,.86); --panel-line:rgba(255,255,255,.08);
+  --safe:#2fd27a; --warn:#ffb020; --stop:#ff4b4b; --sim:#b98cff;
+  --a1:#4fb0ff; --a2:#c58bff;
+  --state:#7d8894;
+  color-scheme:dark;
+}
+body[data-level="clear"]{--state:var(--safe)}
+body[data-level="caution"]{--state:var(--warn)}
+body[data-level="stop"]{--state:var(--stop)}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font-family:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+body.idle,body.idle *{cursor:none!important}
+
+/* ---------- scene ---------- */
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block}
+#vignette{position:fixed;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at 50% 55%,transparent 55%,rgba(0,0,0,.55) 100%)}
+#edge{position:fixed;inset:0;pointer-events:none;z-index:2;opacity:0;box-shadow:inset 0 0 9vw 1.2vw var(--stop)}
+body[data-level="stop"] #edge{animation:edge .9s ease-in-out infinite}
+@keyframes edge{0%,100%{opacity:.12}50%{opacity:.7}}
+
+.lane{stroke:#d9a300;stroke-width:6;opacity:.7}
+.stopline{stroke:#e8edf2;stroke-width:8;opacity:.3}
+.arrow{fill:none;stroke:#fff;stroke-width:7;stroke-linecap:round;stroke-linejoin:round;opacity:.1}
+.stencil{fill:#fff;opacity:.06;font-weight:900;font-size:56px;letter-spacing:10px}
+.stencil.small{font-size:22px;letter-spacing:6px;opacity:.12}
+.rack{opacity:.85}
+.rack-base{fill:#1f262e;stroke:#2c3640;stroke-width:2}
+.beam{stroke:#c1561a;stroke-width:4;opacity:.75}
+.upright{fill:#3567b0}
+.tape{stroke:rgba(0,0,0,.18);stroke-width:4}
+
+#zone{fill:var(--state);fill-opacity:.05;stroke:var(--state);stroke-opacity:.4;stroke-width:2;stroke-dasharray:10 8;transition:fill-opacity .3s}
+body[data-level="caution"] #zone{fill-opacity:.14}
+body[data-level="stop"] #zone{animation:zone .9s ease-in-out infinite}
+@keyframes zone{0%,100%{fill-opacity:.1}50%{fill-opacity:.32}}
+#zoneLabel{fill:var(--state);opacity:.8;font-size:14px;font-weight:800;letter-spacing:4px}
+
+.forklift{--accent:var(--a1)}
+.fk-body{fill:#f0b400;stroke:#a87b00;stroke-width:2}
+.fk-counter{fill:#c99500;stroke:#a87b00;stroke-width:2}
+.fk-guard{fill:rgba(15,18,22,.45);stroke:#22262b;stroke-width:4}
+.fk-bars{fill:none;stroke:#22262b;stroke-width:3}
+.fk-hat{fill:#ff7a1a;stroke:#c75300;stroke-width:2}
+.fk-hat-ridge{stroke:rgba(0,0,0,.25);stroke-width:3}
+.fk-mast{fill:#3a4047;stroke:#262a2f;stroke-width:2}
+.fk-fork{fill:#9aa3ad}
+.fk-wheel{fill:#08090b}
+.fk-shadow{fill:#000;opacity:.3}
+.fk-light{fill:url(#headlight)}
+.fk-brake{fill:#4a1212}
+.braking .fk-brake{fill:#ff3b3b;filter:url(#glow)}
+.fk-beacon{fill:#5a3f00;stroke:#2a1d00;stroke-width:2}
+.fk-beacon-glow{fill:url(#beaconGlow);opacity:0}
+body[data-level="caution"] .fk-beacon{fill:var(--warn)}
+body[data-level="stop"] .fk-beacon{fill:var(--stop)}
+body[data-level="caution"] .fk-beacon-glow{animation:blink 1s ease-in-out infinite}
+body[data-level="stop"] .fk-beacon-glow{animation:blink .45s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.1}50%{opacity:1}}
+#beaconGlow stop{stop-color:var(--state)}
+.fk-radio rect{fill:#0c1520;stroke:var(--accent);stroke-width:2.5}
+.fk-radio circle{fill:var(--accent)}
+.ripple{fill:none;stroke:var(--accent);stroke-width:2.5;opacity:0;transform-box:fill-box;transform-origin:center;animation:ripple 2.4s linear infinite}
+.ripple:nth-child(2){animation-delay:-.8s}
+.ripple:nth-child(3){animation-delay:-1.6s}
+@keyframes ripple{0%{transform:scale(.12);opacity:.6}100%{transform:scale(1);opacity:0}}
+.fk-stopbar{fill:var(--stop);opacity:0;filter:url(#glow)}
+body[data-level="stop"] .fk-stopbar{animation:blink .45s ease-in-out infinite}
+
+#linkGlow{stroke:var(--state);stroke-width:14;opacity:.16;stroke-linecap:round}
+#linkLine{stroke:var(--state);stroke-width:3.5;stroke-dasharray:12 10;stroke-linecap:round;animation:flow .7s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-22}}
+#wallHit circle{fill:#0e1217;stroke:var(--state);stroke-width:3}
+#wallHit .eye{fill:none;stroke:#dfe6ee;stroke-width:2.5;stroke-linejoin:round}
+#wallHit .pupil{fill:#dfe6ee}
+#wallHit .slash{stroke:var(--stop);stroke-width:3.5;stroke-linecap:round}
+#wallHitText{fill:#dfe6ee;font-size:13px;font-weight:800;letter-spacing:2.5px;paint-order:stroke;stroke:#0e1217;stroke-width:5px}
+#pill rect{fill:#0e1217;stroke:var(--state);stroke-width:3}
+#pillText{fill:var(--text);font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+
+.bubble{--accent:var(--a1)}
+.b-box{fill:rgba(12,16,21,.92);stroke:color-mix(in srgb,var(--state) 75%,transparent);stroke-width:2}
+.b-ptr{fill:color-mix(in srgb,var(--state) 75%,transparent)}
+.b-name{fill:var(--accent);font-size:14px;font-weight:800;letter-spacing:2.5px}
+.b-msg{fill:var(--text);font-size:21px;font-weight:700}
+body[data-level="stop"] .b-msg{fill:#ff9a9a}
+body[data-level="caution"] .b-msg{fill:#ffd27a}
+
+/* ---------- HUD ---------- */
+.panel{position:fixed;z-index:5;background:var(--panel);border:1px solid var(--panel-line);border-radius:clamp(10px,1vw,18px);backdrop-filter:blur(6px);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+#titlePanel{top:clamp(12px,1.6vw,32px);left:clamp(12px,1.6vw,32px);padding:clamp(10px,1.1vw,22px) clamp(14px,1.5vw,28px);max-width:33vw}
+.eyebrow{font-size:clamp(10px,.8vw,15px);letter-spacing:.18em;text-transform:uppercase;color:var(--a1);font-weight:700}
+.title{font-size:clamp(18px,1.9vw,38px);font-weight:750;line-height:1.1;margin-top:.25em}
+.subtitle{font-size:clamp(11px,.9vw,17px);color:var(--muted);margin-top:.5em;line-height:1.35}
+#readout{top:clamp(12px,1.6vw,32px);right:clamp(12px,1.6vw,32px);padding:clamp(10px,1.1vw,22px) clamp(14px,1.5vw,28px);min-width:21vw;text-align:right;transition:opacity .3s}
+#readout.stale{opacity:.55}
+.label{font-size:clamp(10px,.8vw,15px);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:650}
+.big{font-size:clamp(44px,5.4vw,108px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;color:var(--state);margin:.1em 0 .14em;text-shadow:0 0 .45em color-mix(in srgb,var(--state) 35%,transparent);transition:color .25s}
+.big .unit{font-size:.42em;font-weight:700;color:var(--muted);margin-left:.15em}
+.row{display:flex;gap:.6vw;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.pill{font-size:clamp(11px,.95vw,18px);font-weight:800;letter-spacing:.12em;padding:.3em .85em;border-radius:999px;background:color-mix(in srgb,var(--state) 18%,transparent);color:var(--state);border:1px solid color-mix(in srgb,var(--state) 45%,transparent)}
+.chip{font-size:clamp(10px,.8vw,15px);color:var(--muted);display:inline-flex;align-items:center;gap:.5em;padding:.35em .8em;border-radius:999px;background:rgba(255,255,255,.05)}
+.chip .dot{width:.6em;height:.6em;border-radius:50%;background:var(--faint)}
+.chip.live{color:#cfeedd}
+.chip.live .dot{background:var(--safe);animation:ping 1.6s infinite}
+.chip.wait{color:#ffe0a3}
+.chip.wait .dot{background:var(--warn)}
+.chip.sim{color:#e2d0ff}
+.chip.sim .dot{background:var(--sim)}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(47,210,122,.6)}100%{box-shadow:0 0 0 .7em rgba(47,210,122,0)}}
+
+#banner{position:fixed;z-index:6;left:50%;top:clamp(12px,1.6vw,32px);transform:translate(-50%,-160%);opacity:0;transition:transform .35s cubic-bezier(.2,.9,.3,1.2),opacity .3s;padding:.5em 1.2em;border-radius:999px;font-size:clamp(14px,1.55vw,32px);font-weight:800;letter-spacing:.04em;background:var(--state);color:#1a1000;box-shadow:0 0 2.5vw color-mix(in srgb,var(--state) 60%,transparent);white-space:nowrap;display:flex;align-items:center;gap:.55em}
+#banner svg{width:1.15em;height:1.15em;flex:none}
+body[data-level="caution"] #banner,body[data-level="stop"] #banner{transform:translate(-50%,0);opacity:1}
+body[data-level="stop"] #banner{color:#fff;animation:bannerPulse .9s ease-in-out infinite}
+@keyframes bannerPulse{50%{filter:brightness(1.3)}}
+
+#serialOverlay{left:clamp(12px,1.6vw,32px);bottom:clamp(58px,4vw,85px);width:min(480px,33vw);padding:10px 12px;pointer-events:none}
+#serialOverlay[data-position="right"]{left:auto;right:clamp(12px,1.6vw,32px);bottom:calc(clamp(12px,1.6vw,32px) + clamp(50px,5vw,100px) + 65px)}
+body.clean #serialOverlay{bottom:clamp(12px,1.6vw,32px)}
+@media(max-width:700px){#serialOverlay{width:min(340px,45vw)}}
+#serialOverlay[hidden]{display:none}
+#serialOverlay pre{margin:6px 0 0;font:clamp(10px,.85vw,15px)/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#c8e5ff}
+#serialOverlay .note{margin-top:6px}
+#sparkPanel{right:clamp(12px,1.6vw,32px);bottom:clamp(12px,1.6vw,32px);padding:clamp(8px,.8vw,16px) clamp(12px,1.1vw,20px);width:21vw}
+#spark{display:block;width:100%;height:clamp(50px,5vw,100px);margin-top:.5em}
+
+#hints{position:fixed;z-index:5;left:clamp(12px,1.6vw,32px);bottom:clamp(12px,1.6vw,32px);display:flex;align-items:center;gap:12px;font-size:clamp(10px,.75vw,14px);color:var(--muted);transition:opacity .5s}
+body.idle #hints{opacity:0}
+body.clean #titlePanel,body.clean #sparkPanel,body.clean #hints{display:none}
+
+.btn{font:inherit;font-size:14px;font-weight:650;color:var(--text);background:#232b35;border:1px solid #333e4b;border-radius:10px;padding:9px 14px;cursor:pointer}
+.btn:hover{background:#2b3541}
+.btn.primary{background:#1f6fd1;border-color:#2c80e6}
+.btn.primary:hover{background:#2a7be0}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.small{font-size:12px;padding:6px 10px}
+.btnrow{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.btnrow.center{justify-content:center}
+kbd{font:600 11px ui-monospace,Consolas,monospace;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.12);margin-left:6px}
+
+#start{left:50%;top:52%;transform:translate(-50%,-50%);width:min(560px,90vw);padding:26px 30px;text-align:center;z-index:8;display:none}
+#start.show{display:block}
+#start h2{margin:.35em 0 .3em;font-size:24px}
+#start p{color:var(--muted);line-height:1.5;margin:.4em 0 1em;font-size:15px}
+#start .note{font-size:13px;color:#ffcf7a;min-height:1em;margin:6px 0 0}
+
+#settings{position:fixed;top:0;right:0;height:100%;width:min(410px,94vw);z-index:20;background:#0f1318;border-left:1px solid var(--panel-line);transform:translateX(105%);transition:transform .3s ease;overflow-y:auto;padding:18px 22px 40px;font-size:14px;box-shadow:-20px 0 60px rgba(0,0,0,.4)}
+#settings.open{transform:none}
+.s-head{display:flex;justify-content:space-between;align-items:center}
+#settings h2{font-size:19px;margin:0}
+#settings h3{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:24px 0 8px;font-weight:700}
+.field{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:10px;margin:9px 0}
+.field.wide{grid-template-columns:1fr;gap:6px}
+.field small{color:var(--faint);font-weight:400}
+#settings input,#settings select{background:#1a2027;color:var(--text);border:1px solid #2a323c;border-radius:8px;padding:7px 9px;font:inherit;width:100%}
+#settings input[type=text]{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+#settings input[type=checkbox]{width:18px;height:18px;justify-self:end;accent-color:var(--a1)}
+#settings input[type=range]{padding:0;accent-color:var(--a1)}
+.note{color:var(--muted);font-size:12.5px;line-height:1.45}
+.test-out{font:13px ui-monospace,Consolas,monospace;color:var(--muted);padding:2px 0 4px}
+.test-out.ok{color:var(--safe)}
+.test-out.bad{color:#ff8a8a}
+pre#raw{margin:0;background:#0a0d11;border:1px solid #222a33;border-radius:8px;padding:8px;font:12px/1.45 ui-monospace,Consolas,monospace;height:190px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:#8fa0b2}
+.icon-btn{background:none;border:0;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px;border-radius:8px}
+.icon-btn:hover{background:#1d242c;color:var(--text)}
+
+#toast{position:fixed;z-index:30;left:50%;bottom:clamp(16px,2.4vw,44px);transform:translate(-50%,20px);opacity:0;transition:all .3s;background:#1d242d;border:1px solid #33404e;color:var(--text);padding:10px 16px;border-radius:10px;font-size:14px;max-width:80vw;pointer-events:none}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body data-level="idle">
+
+<svg id="scene" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Top-down warehouse: two forklifts approaching a doorway from opposite sides of a wall">
+  <defs>
+    <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+      <path d="M100 0H0V100" fill="none" stroke="rgba(255,255,255,.035)" stroke-width="2"/>
+    </pattern>
+    <pattern id="wallHatch" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="16" height="16" fill="#4a535e"/>
+      <rect width="5" height="16" fill="#56606c"/>
+    </pattern>
+    <pattern id="hazard" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="16" height="16" fill="#1b1b1b"/>
+      <rect width="8" height="16" fill="#f2b705"/>
+    </pattern>
+    <linearGradient id="headlight" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff3cf" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#fff3cf" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="beaconGlow">
+      <stop offset="0" stop-opacity=".95"/>
+      <stop offset="1" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="-2400" y="-1600" width="6400" height="4100" fill="#171c22"/>
+  <rect x="-2400" y="-1600" width="6400" height="4100" fill="url(#grid)"/>
+  <g id="racks"></g>
+  <g id="floorMarks"></g>
+  <rect id="zone" x="680" y="240" width="240" height="178"/>
+  <text id="zoneLabel" x="800" y="264" text-anchor="middle">CONFLICT ZONE</text>
+  <g id="walls"></g>
+  <g id="fkLayer"></g>
+  <g id="linkLayer" style="display:none">
+    <line id="linkGlow"/>
+    <line id="linkLine"/>
+    <g id="wallHit">
+      <circle r="17"/>
+      <path class="eye" d="M-10,0Q0,-9 10,0Q0,9 -10,0Z"/>
+      <circle class="pupil" r="3"/>
+      <path class="slash" d="M-9,-9L9,9"/>
+      <text id="wallHitText" x="-26" y="5" text-anchor="end">NO LINE OF SIGHT</text>
+    </g>
+    <g id="pill">
+      <rect x="-80" y="-25" width="160" height="50" rx="25"/>
+      <text id="pillText" y="9" text-anchor="middle">-- m</text>
+    </g>
+  </g>
+  <g id="bubbleLayer"></g>
+</svg>
+<div id="vignette"></div>
+<div id="edge"></div>
+
+<div id="titlePanel" class="panel">
+  <div class="eyebrow">Bluetooth Channel Sounding · live</div>
+  <div id="titleText" class="title">Forklift collision avoidance</div>
+  <div class="subtitle">The distance between the two dev kits drives the forklifts, measured live through the wall.</div>
+</div>
+
+<div id="readout" class="panel">
+  <div class="label">Distance between forklifts</div>
+  <div class="big"><span id="distVal">--</span><span class="unit">m</span></div>
+  <div class="row">
+    <span id="levelPill" class="pill">NO DATA</span>
+    <span id="chip" class="chip"><i class="dot"></i><span id="chipText">Dev kit not connected</span></span>
+  </div>
+</div>
+
+<div id="banner" role="status" aria-live="polite">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 2.5 1.5 21h21L12 2.5Zm-1 6.5h2v6.2h-2V9Zm0 7.8h2v2h-2v-2Z"/></svg>
+  <span id="bannerText"></span>
+</div>
+
+<div id="sparkPanel" class="panel">
+  <div class="label">Distance · last 30 s</div>
+  <canvas id="spark"></canvas>
+</div>
+
+<div id="serialOverlay" class="panel" hidden>
+  <div class="label">Live serial input</div>
+  <pre id="serialOverlayText">Waiting for serial input…</pre>
+  <div id="serialOverlayStats" class="note"></div>
+</div>
+<div id="hints">
+  <button id="gear" class="btn small">Settings</button>
+  <span>C connect · D autopilot · M manual (↑ ↓) · S settings · L serial · F fullscreen · H hide panels</span>
+</div>
+
+<div id="start" class="panel">
+  <div class="eyebrow">Set up</div>
+  <h2 id="startTitle">Connect the initiator dev kit</h2>
+  <p>Plug the initiator board into this computer over USB, then pick its J-Link VCOM port. The forklifts move as you move the boards.</p>
+  <div class="btnrow center">
+    <button class="btn primary" id="startConnect">Connect dev kit<kbd>C</kbd></button>
+    <button class="btn primary" id="startDownload" hidden>Download for live boards</button>
+    <button class="btn" id="startDemo">Demo autopilot<kbd>D</kbd></button>
+  </div>
+  <p class="note" id="startNote"></p>
+</div>
+
+<aside id="settings" aria-label="Settings">
+  <div class="s-head"><h2>Demo settings</h2><button class="icon-btn" id="closeSettings" aria-label="Close settings">✕</button></div>
+
+  <h3>Dev kit connection</h3>
+  <div class="btnrow"><button class="btn primary" id="btnConnect">Connect dev kit</button><button class="btn" id="btnDisconnect">Disconnect</button><button class="btn" id="btnDownload" hidden>Download for live boards</button></div>
+  <p class="note">Pick the initiator's J-Link VCOM port. Close Simplicity Studio's serial console (or any terminal) first, since only one app can hold the port.</p>
+  <label class="field"><span>Baud rate</span>
+    <select data-key="baud" data-type="num"><option>115200</option><option>230400</option><option>460800</option><option>921600</option><option>9600</option></select></label>
+  <label class="field"><span>Reconnect automatically</span><input type="checkbox" data-key="autoConnect"></label>
+
+  <h3>Reading the distance</h3>
+  <label class="field"><span>Line format</span>
+    <select data-key="parseMode"><option value="auto">Auto-detect</option><option value="custom">Custom regex</option></select></label>
+  <label class="field wide"><span>Custom regex <small>(group 1 = number, group 2 = unit, optional)</small></span>
+    <input type="text" data-key="customRegex" spellcheck="false" placeholder="Measurement result:\s*([\d.]+)\s*(mm|cm|m)"></label>
+  <label class="field"><span>Unit when none is printed</span>
+    <select data-key="defaultUnit"><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option></select></label>
+  <label class="field wide"><span>Ignore lines matching <small>(regex, optional)</small></span>
+    <input type="text" data-key="ignorePattern" spellcheck="false" placeholder="e.g. RSSI"></label>
+  <label class="field wide"><span>Test a line</span>
+    <input type="text" id="testLine" spellcheck="false" placeholder="Paste a line from the serial log"></label>
+  <div class="test-out" id="testOut">Paste a line above to check it parses.</div>
+  <div class="field wide"><span>Incoming serial <small id="rawStats"></small></span><pre id="raw"></pre></div>
+
+  <h3>Calibration and mapping</h3>
+  <label class="field"><span>Offset added (m)</span><input type="number" step="0.01" data-key="offset" data-type="num"></label>
+  <label class="field"><span>Scale factor</span><input type="number" step="0.01" data-key="scale" data-type="num"></label>
+  <label class="field"><span>Forklifts at start when ≥ (m)</span><input type="number" step="0.1" min="0.3" data-key="dMax" data-type="num"></label>
+  <label class="field"><span>Caution below (m)</span><input type="number" step="0.05" min="0" data-key="dCaution" data-type="num"></label>
+  <label class="field"><span>Stop below (m)</span><input type="number" step="0.05" min="0" data-key="dStop" data-type="num"></label>
+  <label class="field"><span>Smoothing <small id="smVal"></small></span><input type="range" min="0" max="0.9" step="0.05" data-key="smoothing" data-type="num"></label>
+  <label class="field"><span>Reject single-sample spikes</span><input type="checkbox" data-key="median"></label>
+
+  <h3>Demo</h3>
+  <label class="field"><span>Distance source</span>
+    <select id="sourceSel"><option value="live">Live dev kit</option><option value="auto">Demo autopilot</option><option value="manual">Manual slider</option></select></label>
+  <label class="field wide"><span>Manual distance <small id="manVal"></small></span><input type="range" min="0" max="4" step="0.01" id="manualRange"></label>
+  <label class="field"><span>Alert beeps</span><input type="checkbox" data-key="sound"></label>
+
+  <h3>Presentation overlay</h3>
+  <label class="field"><span>Show serial input (L)</span><input type="checkbox" data-key="showSerial"></label>
+  <label class="field"><span>Serial display</span><select data-key="serialView"><option value="latest">Latest measurement</option><option value="raw">Latest raw line</option><option value="history">Last 5 raw lines</option></select></label>
+  <label class="field"><span>Serial position</span><select data-key="serialPosition"><option value="left">Bottom left</option><option value="right">Bottom right</option></select></label>
+  <h3>Labels</h3>
+  <label class="field wide"><span>Title</span><input type="text" data-key="title"></label>
+  <label class="field wide"><span>Forklift 1</span><input type="text" data-key="name1"></label>
+  <label class="field wide"><span>Forklift 2</span><input type="text" data-key="name2"></label>
+
+  <div class="btnrow" style="margin-top:22px"><button class="btn" id="btnReset">Reset settings</button></div>
+  <p class="note">Keys: C connect · D autopilot · M manual (↑ ↓ or scroll wheel) · S settings · L serial · F fullscreen · H hide panels · Esc close</p>
+</aside>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const STORE_KEY = 'csForkliftDemo.v1';
+const STALE_MS = 3000;
+
+// Scene geometry (SVG units, viewBox 1600x900). Conflict point = doorway column x aisle centre.
+const G = {
+  cx: 800, cy: 320,
+  aMin: 250, aMax: 640,   // forklift 1: distance left of the conflict point (closest .. start)
+  bMin: 250, bMax: 500,   // forklift 2: distance below the conflict point
+  walls: [{ x1: -400, x2: 680, y1: 418, y2: 450 }, { x1: 920, x2: 2000, y1: 418, y2: 450 }],
+};
+
+const DEFAULTS = {
+  baud: 115200, autoConnect: true, lastPortInfo: null,
+  parseMode: 'auto', customRegex: '', defaultUnit: 'm', ignorePattern: '',
+  offset: 0, scale: 1, dMax: 3.0, dCaution: 1.5, dStop: 0.75, smoothing: 0.5, median: true,
+  manual: 2.0, sound: false, showSerial: false, serialView: 'latest', serialPosition: 'left',
+  title: 'Forklift collision avoidance', name1: 'Forklift 1 · initiator', name2: 'Forklift 2 · reflector',
+};
+let S = loadSettings();
+function loadSettings() {
+  try { const raw = localStorage.getItem(STORE_KEY); if (raw) return { ...DEFAULTS, ...JSON.parse(raw) }; } catch (e) {}
+  return { ...DEFAULTS };
+}
+function saveSettings() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {} }
+
+// ---------------------------------------------------------------- scene build
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const BOX = ['#a57b4c', '#b48955', '#9a7045', '#c29a68', '#8d6a45', '#7d8792'];
+function rack(x, y, w, h, horiz, rng) {
+  const L = horiz ? w : h, n = Math.max(1, Math.round(L / 112)), bay = L / n;
+  let s = `<g class="rack"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" class="rack-base"/>`;
+  for (let i = 0; i < n; i++) {
+    const bx = horiz ? x + i * bay : x, by = horiz ? y : y + i * bay, bw = horiz ? bay : w, bh = horiz ? h : bay;
+    if (rng() < 0.8) {
+      const p = 9, col = BOX[Math.floor(rng() * BOX.length)];
+      s += `<rect x="${bx + p}" y="${by + p}" width="${bw - 2 * p}" height="${bh - 2 * p}" rx="2" fill="#5e4026"/>`;
+      s += `<rect x="${bx + p + 4}" y="${by + p + 4}" width="${bw - 2 * p - 8}" height="${bh - 2 * p - 8}" rx="2" fill="${col}"/>`;
+      s += horiz
+        ? `<line x1="${bx + bw / 2}" y1="${by + p + 4}" x2="${bx + bw / 2}" y2="${by + bh - p - 4}" class="tape"/>`
+        : `<line x1="${bx + p + 4}" y1="${by + bh / 2}" x2="${bx + bw - p - 4}" y2="${by + bh / 2}" class="tape"/>`;
+    }
+  }
+  s += horiz
+    ? `<line x1="${x}" y1="${y + 2}" x2="${x + w}" y2="${y + 2}" class="beam"/><line x1="${x}" y1="${y + h - 2}" x2="${x + w}" y2="${y + h - 2}" class="beam"/>`
+    : `<line x1="${x + 2}" y1="${y}" x2="${x + 2}" y2="${y + h}" class="beam"/><line x1="${x + w - 2}" y1="${y}" x2="${x + w - 2}" y2="${y + h}" class="beam"/>`;
+  for (let i = 0; i <= n; i++) {
+    const u = (horiz ? x : y) + i * bay;
+    s += horiz
+      ? `<rect x="${u - 4}" y="${y - 2}" width="8" height="8" class="upright"/><rect x="${u - 4}" y="${y + h - 6}" width="8" height="8" class="upright"/>`
+      : `<rect x="${x - 2}" y="${u - 4}" width="8" height="8" class="upright"/><rect x="${x + w - 6}" y="${u - 4}" width="8" height="8" class="upright"/>`;
+  }
+  return s + '</g>';
+}
+function buildStatic() {
+  const rng = mulberry32(7);
+  let r = rack(30, 14, 1540, 84, true, rng) + rack(30, 112, 1540, 100, true, rng);
+  for (const x of [110, 200, 380, 470, 1046, 1136, 1316, 1406]) r += rack(x, 500, 84, 560, false, rng);
+  $('racks').innerHTML = r;
+
+  const { cx, cy } = G, m = [];
+  m.push(`<line x1="-400" y1="240" x2="2000" y2="240" class="lane"/>`);
+  m.push(`<line x1="-400" y1="404" x2="680" y2="404" class="lane"/><line x1="920" y1="404" x2="2000" y2="404" class="lane"/>`);
+  m.push(`<line x1="704" y1="452" x2="704" y2="1400" class="lane"/><line x1="896" y1="452" x2="896" y2="1400" class="lane"/>`);
+  m.push(`<line x1="708" y1="478" x2="892" y2="478" class="stopline"/>`);
+  for (const x of [330, 1160, 1440]) m.push(`<path class="arrow" d="M${x - 14},${cy - 20}L${x + 8},${cy}L${x - 14},${cy + 20}"/>`);
+  m.push(`<path class="arrow" d="M${cx - 20},${714}L${cx},${692}L${cx + 20},${714}"/>`);
+  m.push(`<text class="stencil" x="1300" y="338" text-anchor="middle">AISLE A</text>`);
+  m.push(`<text class="stencil small" x="${cx}" y="512" text-anchor="middle">DOOR 3</text>`);
+  $('floorMarks').innerHTML = m.join('');
+
+  $('walls').innerHTML = `
+    <rect x="-394" y="426" width="1074" height="32" fill="#000" opacity=".35"/>
+    <rect x="926" y="426" width="1074" height="32" fill="#000" opacity=".35"/>
+    <rect x="-400" y="418" width="1080" height="32" fill="url(#wallHatch)" stroke="#6c7683" stroke-width="2"/>
+    <rect x="920" y="418" width="1080" height="32" fill="url(#wallHatch)" stroke="#6c7683" stroke-width="2"/>
+    <rect x="664" y="411" width="18" height="46" rx="2" fill="url(#hazard)" stroke="#0e0e0e" stroke-width="2"/>
+    <rect x="918" y="411" width="18" height="46" rx="2" fill="url(#hazard)" stroke="#0e0e0e" stroke-width="2"/>
+    <line x1="682" y1="434" x2="918" y2="434" stroke="rgba(255,255,255,.12)" stroke-width="2" stroke-dasharray="6 8"/>`;
+}
+
+const LOAD = `<g class="fk-load">
+  <rect x="46" y="-41" width="78" height="82" rx="3" fill="#6b4626"/>
+  <rect x="50" y="-37" width="34" height="35" rx="2" fill="#c39462"/><rect x="87" y="-37" width="34" height="35" rx="2" fill="#b4834f"/>
+  <rect x="50" y="2" width="34" height="35" rx="2" fill="#b4834f"/><rect x="87" y="2" width="34" height="35" rx="2" fill="#c39462"/>
+  <path d="M67,-37V-2M104,-37V-2M67,2V37M104,2V37" stroke="rgba(0,0,0,.2)" stroke-width="4"/></g>`;
+// Forklift drawn facing +x, origin at body centre. The CS radio sits on the overhead guard at (11.5, 0).
+function makeForklift(id, accent, loaded) {
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('id', id); g.setAttribute('class', 'forklift'); g.style.setProperty('--accent', accent);
+  g.innerHTML = `
+    <g class="fk-ripples"><circle class="ripple" cx="11.5" cy="0" r="150"/><circle class="ripple" cx="11.5" cy="0" r="150"/><circle class="ripple" cx="11.5" cy="0" r="150"/></g>
+    <path class="fk-light" d="M44,-28L320,-110L320,110L44,28Z"/>
+    <rect class="fk-shadow" x="-72" y="-44" width="${loaded ? 200 : 190}" height="92" rx="16" transform="translate(8 10)"/>
+    <rect class="fk-stopbar" x="${loaded ? 140 : 132}" y="-62" width="8" height="124" rx="4"/>
+    <rect class="fk-wheel" x="2" y="-47" width="28" height="13" rx="4"/><rect class="fk-wheel" x="2" y="34" width="28" height="13" rx="4"/>
+    <rect class="fk-wheel" x="-58" y="-44" width="22" height="10" rx="3"/><rect class="fk-wheel" x="-58" y="34" width="22" height="10" rx="3"/>
+    <rect class="fk-fork" x="40" y="-25" width="76" height="10" rx="2"/><rect class="fk-fork" x="40" y="15" width="76" height="10" rx="2"/>
+    ${loaded ? LOAD : ''}
+    <rect class="fk-mast" x="28" y="-39" width="16" height="78" rx="3"/>
+    <path class="fk-counter" d="M-50,-36H-60Q-76,-36 -76,-20V20Q-76,36 -60,36H-50Z"/>
+    <rect class="fk-body" x="-64" y="-36" width="94" height="72" rx="12"/>
+    <rect class="fk-guard" x="-40" y="-31" width="62" height="62" rx="5"/>
+    <circle class="fk-hat" cx="-14" cy="0" r="13"/><path class="fk-hat-ridge" d="M-14,-12V12"/>
+    <path class="fk-bars" d="M-40,-10H22M-40,10H22M-19,-31V31M1,-31V31"/>
+    <rect class="fk-brake" x="-80" y="-30" width="6" height="13" rx="2"/><rect class="fk-brake" x="-80" y="17" width="6" height="13" rx="2"/>
+    <circle class="fk-beacon-glow" cx="-52" cy="0" r="26"/><circle class="fk-beacon" cx="-52" cy="0" r="7"/>
+    <g class="fk-radio"><rect x="3" y="-12" width="17" height="24" rx="3"/><circle cx="11.5" cy="0" r="3.5"/></g>`;
+  $('fkLayer').append(g);
+  return g;
+}
+
+const BH = 70;
+function makeBubble(accent) {
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('class', 'bubble'); g.style.setProperty('--accent', accent);
+  g.innerHTML = `<path class="b-ptr"/><rect class="b-box" x="0" y="0" height="${BH}" rx="12"/><text class="b-name" x="18" y="26"></text><text class="b-msg" x="18" y="54"></text>`;
+  $('bubbleLayer').append(g);
+  return { g, ptr: g.querySelector('.b-ptr'), box: g.querySelector('.b-box'), name: g.querySelector('.b-name'), msg: g.querySelector('.b-msg'), w: 200, key: '' };
+}
+function setBubbleText(b, name, msg) {
+  const key = name + '|' + msg;
+  if (b.key === key) return;
+  b.key = key; b.name.textContent = name; b.msg.textContent = msg;
+  b.w = Math.ceil(Math.max(b.name.getComputedTextLength(), b.msg.getComputedTextLength())) + 36;
+  b.box.setAttribute('width', b.w);
+}
+
+buildStatic();
+const fk1 = makeForklift('fk1', 'var(--a1)', true);
+const fk2 = makeForklift('fk2', 'var(--a2)', false);
+const b1 = makeBubble('var(--a1)'), b2 = makeBubble('var(--a2)');
+
+// ---------------------------------------------------------------- distance pipeline
+let source = 'live';               // 'live' | 'auto' | 'manual'
+let level = '';
+let hasData = false, target = 0, display = S.dMax, filt = null, lastMeas = 0;
+const med = [], rateTimes = [], history = [];
+
+function feed(m, src) {
+  if (src !== source) return;
+  if (src === 'live') m = m * S.scale + S.offset;
+  if (!Number.isFinite(m)) return;
+  med.push(m); if (med.length > 3) med.shift();
+  let v = m;
+  if (S.median && med.length === 3) v = med.slice().sort((a, b) => a - b)[1];
+  const k = clamp(S.smoothing, 0, 0.95);
+  filt = (filt == null || !hasData) ? v : k * filt + (1 - k) * v;
+  target = Math.max(0, filt);
+  if (!hasData) { hasData = true; display = Math.max(S.dMax, target); }
+  lastMeas = performance.now();
+  if (src === 'live') rateTimes.push(lastMeas);
+  updateStartCard();
+}
+
+// ---------------------------------------------------------------- parsing serial lines
+const ANSI = /\x1b\[[0-9;?]*[ -\/]*[@-~]/g;
+const AUTO_PATTERNS = [
+  { re: /\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\s*\|\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)\s*\|/i }, // Silicon Labs tabular channel sounding output
+  { re: /measurement result\D*?(\d+(?:\.\d+)?)\s*(mm|cm|m)\b/i },                     // Silicon Labs bt_cs_soc_initiator
+  { re: /"(?:distance|dist|distance_m)"\s*:\s*(-?\d+(?:\.\d+)?)/i, unit: 'm' },          // JSON
+  { re: /(?<!rssi[\s_-]?)\bdist(?:ance)?\b[^\d\n]*?(\d+(?:\.\d+)?)\s*(mm|cm|m)\b/i },  // "distance: 1234 mm" (not RSSI distance)
+];
+let reCache = null;
+function compiled() {
+  if (reCache) return reCache;
+  reCache = { ignore: null, custom: null, err: '' };
+  try { if (S.ignorePattern) reCache.ignore = new RegExp(S.ignorePattern, 'i'); } catch (e) { reCache.err = 'Ignore pattern: ' + e.message; }
+  try { if (S.parseMode === 'custom' && S.customRegex) reCache.custom = new RegExp(S.customRegex, 'i'); } catch (e) { reCache.err = 'Custom regex: ' + e.message; }
+  return reCache;
+}
+function toMeters(v, unit) {
+  if (!Number.isFinite(v)) return null;
+  switch (String(unit || 'm').toLowerCase()) { case 'mm': return v / 1000; case 'cm': return v / 100; default: return v; }
+}
+function parseDistance(line) {
+  const c = compiled();
+  if (c.ignore && c.ignore.test(line)) return null;
+  if (S.parseMode === 'custom') {
+    if (!c.custom) return null;
+    const m = line.match(c.custom);
+    return m ? toMeters(parseFloat(m[1]), m[2] || S.defaultUnit) : null;
+  }
+  for (const p of AUTO_PATTERNS) {
+    const m = line.match(p.re);
+    if (m) return toMeters(parseFloat(m[1]), m[2] || p.unit || S.defaultUnit);
+  }
+  return null;
+}
+
+let latestMeasurement = "", latestSerial = "";
+const rawLines = []; let rawDirty = false, lineCount = 0, parsedCount = 0, lastLineAt = 0;
+function handleLine(raw) {
+  const line = String(raw).replace(ANSI, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').trim();
+  if (!line) return null;
+  lastLineAt = performance.now(); lineCount++;
+  const m = parseDistance(line);
+  rawLines.push((m != null ? '✓ ' : '  ') + line + (m != null ? `   → ${m.toFixed(3)} m` : ''));
+  if (rawLines.length > 80) rawLines.shift();
+  rawDirty = true;
+  latestSerial = line;
+  if (m != null) latestMeasurement = line;
+  if (m != null) { parsedCount++; feed(m, 'live'); }
+  return m;
+}
+
+// ---------------------------------------------------------------- Web Serial
+const hasSerial = 'serial' in navigator;
+// A hosted (framed) copy of this page can see navigator.serial but isn't allowed to use it.
+const policy = document.permissionsPolicy || document.featurePolicy;
+const serialAllowed = hasSerial && !(policy && typeof policy.allowsFeature === 'function' && !policy.allowsFeature('serial'));
+const serial ={ port: null, reader: null, loop: null, keep: false, connected: false };
+const sameInfo = (a, b) => !!a && !!b && a.usbVendorId === b.usbVendorId && a.usbProductId === b.usbProductId;
+
+async function connectSerial(port, quiet) {
+  if (!serialAllowed) {
+    toast(hasSerial
+      ? "This online copy can't reach USB ports. Download it, then open the file in Chrome or Edge. Press D for demo autopilot."
+      : 'Live mode needs Chrome or Edge on a desktop. Press D for demo autopilot.', 6000);
+    return;
+  }
+  if (serial.connected) await disconnectSerial();
+  if (!port) { try { port = await navigator.serial.requestPort(); } catch (e) { return; } }
+  try {
+    await port.open({ baudRate: Number(S.baud) || 115200, bufferSize: 8192 });
+  } catch (e) {
+    if (!quiet || !/already open/i.test(e.message)) toast(`Couldn't open the port (${e.message}). Close any serial console that is using it.`, 6000);
+    return;
+  }
+  serial.port = port; serial.connected = true; serial.keep = true;
+  try { S.lastPortInfo = port.getInfo(); saveSettings(); } catch (e) {}
+  setSource('live');
+  toast('Dev kit connected · waiting for distance lines…');
+  serial.loop = readLoop(port);
+  updateStartCard();
+}
+async function readLoop(port) {
+  const dec = new TextDecoder();
+  let buf = '';
+  while (serial.keep && serial.port === port && port.readable) {
+    const reader = port.readable.getReader();
+    serial.reader = reader;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split(/\r\n|\n|\r/);
+        buf = parts.pop();
+        if (buf.length > 2048) buf = buf.slice(-512);
+        for (const ln of parts) handleLine(ln);
+      }
+    } catch (e) {
+      // Framing/break errors leave the port readable and we loop; unplugging ends the loop below.
+    } finally {
+      try { reader.releaseLock(); } catch (e) {}
+      if (serial.reader === reader) serial.reader = null;
+    }
+  }
+  try { await port.close(); } catch (e) {}
+  if (serial.port === port) {
+    const unexpected = serial.keep;
+    serial.port = null; serial.connected = false;
+    if (unexpected) toast('Dev kit disconnected. Plug it back in to resume.', 5000);
+    updateStartCard();
+  }
+}
+async function disconnectSerial() {
+  serial.keep = false;
+  try { if (serial.reader) await serial.reader.cancel(); } catch (e) {}
+  try { await serial.loop; } catch (e) {}
+  serial.port = null; serial.connected = false;
+  updateStartCard();
+}
+if (serialAllowed) {
+  navigator.serial.addEventListener('connect', e => {
+    if (S.autoConnect && !serial.connected && source === 'live') setTimeout(() => connectSerial(e.target, true), 600);
+  });
+}
+async function autoConnect() {
+  if (!serialAllowed || !S.autoConnect) return;
+  try {
+    const ports = await navigator.serial.getPorts();
+    const p = ports.length === 1 ? ports[0] : ports.find(pp => sameInfo(pp.getInfo(), S.lastPortInfo));
+    if (p) await connectSerial(p, true);
+  } catch (e) {}
+}
+
+// ---------------------------------------------------------------- simulation sources
+let simT0 = performance.now(), lastSimFeed = 0;
+function simTick(now) {
+  if (source === 'live' || now - lastSimFeed < 100) return;
+  lastSimFeed = now;
+  const noise = (Math.random() - 0.5) * 0.03;
+  if (source === 'auto') {
+    const period = 16000, p = ((now - simT0) % period) / period;
+    const lo = Math.max(0.25, S.dStop * 0.55), hi = S.dMax + 0.4;
+    const c = 0.5 - 0.5 * Math.cos(2 * Math.PI * p);
+    feed(hi - (hi - lo) * c + noise, 'auto');
+  } else if (source === 'manual') {
+    feed(S.manual + noise * 0.5, 'manual');
+  }
+}
+function setSource(src) {
+  if (src === source) return;
+  const prev = hasData ? display : S.dMax;
+  source = src; med.length = 0;
+  if (src === 'manual') { S.manual = +clamp(prev, 0, S.dMax + 1).toFixed(2); syncManualUI(); }
+  if (src === 'live') { hasData = false; filt = null; rateTimes.length = 0; }
+  if (src === 'auto') simT0 = performance.now();
+  $('sourceSel').value = src;
+  updateStartCard();
+}
+
+// ---------------------------------------------------------------- levels & labels
+const PILL = { idle: 'NO DATA', clear: 'CLEAR', caution: 'CAUTION', stop: 'STOP' };
+const BANNER = { caution: 'Caution · forklift approaching behind the wall', stop: 'Stop · collision risk at the doorway' };
+const MSG = {
+  idle:    ['Waiting for distance…', 'Waiting for distance…'],
+  clear:   ['Path clear · proceeding', 'Path clear · proceeding'],
+  caution: ['Hidden forklift ahead · slow down', 'Forklift in aisle · slow down'],
+  stop:    ['STOP · yield at doorway', 'STOP · forklift crossing'],
+};
+function computeLevel(d, prev) {
+  const h = 0.05;
+  if (prev === 'stop' ? d <= S.dStop + h : d <= S.dStop) return 'stop';
+  if (prev === 'caution' || prev === 'stop' ? d <= S.dCaution + h : d <= S.dCaution) return 'caution';
+  return 'clear';
+}
+function setLevel(l) {
+  level = l; document.body.dataset.level = l;
+  $('levelPill').textContent = PILL[l];
+  if (BANNER[l]) $('bannerText').textContent = BANNER[l];
+  fk1.classList.toggle('braking', l === 'stop'); fk2.classList.toggle('braking', l === 'stop');
+  refreshBubbles();
+}
+function refreshBubbles() {
+  const msg = MSG[level] || MSG.idle;
+  setBubbleText(b1, S.name1.toUpperCase(), msg[0]);
+  setBubbleText(b2, S.name2.toUpperCase(), msg[1]);
+}
+
+// ---------------------------------------------------------------- render loop
+const linkLayer = $('linkLayer'), linkLine = $('linkLine'), linkGlow = $('linkGlow');
+const wallHit = $('wallHit'), pill = $('pill'), pillText = $('pillText');
+function setLine(el, p, q) { el.setAttribute('x1', p.x.toFixed(1)); el.setAttribute('y1', p.y.toFixed(1)); el.setAttribute('x2', q.x.toFixed(1)); el.setAttribute('y2', q.y.toFixed(1)); }
+function firstWallHit(p, q) {
+  const N = 90;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, x = p.x + (q.x - p.x) * t, y = p.y + (q.y - p.y) * t;
+    for (const w of G.walls) if (x >= w.x1 && x <= w.x2 && y >= w.y1 && y <= w.y2) return { x, y: (w.y1 + w.y2) / 2 };
+  }
+  return null;
+}
+function placeBubbles(x1, y2) {
+  const ax = x1 + 10;
+  const bx1 = clamp(ax - b1.w / 2, 20, 1580 - b1.w), by1 = G.cy - 60 - BH;
+  const lx = ax - bx1;
+  b1.g.setAttribute('transform', `translate(${bx1.toFixed(1)} ${by1})`);
+  b1.ptr.setAttribute('d', `M${(lx - 11).toFixed(1)},${BH}L${lx.toFixed(1)},${BH + 12}L${(lx + 11).toFixed(1)},${BH}Z`);
+  const bx2 = G.cx + 68, by2 = clamp(y2 - BH / 2, 470, 880 - BH), py = y2 - by2;
+  b2.g.setAttribute('transform', `translate(${bx2} ${by2.toFixed(1)})`);
+  b2.ptr.setAttribute('d', `M0,${(py - 11).toFixed(1)}L-12,${py.toFixed(1)}L0,${(py + 11).toFixed(1)}Z`);
+}
+
+let lastFrame = performance.now(), lastHist = 0, lastSpark = 0, lastRaw = 0;
+let shownDist = '', shownChip = '';
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  simTick(now);
+  if (hasData) display += (target - display) * (1 - Math.exp(-dt * 7));
+  const d = hasData ? display : S.dMax;
+  const f = clamp(d / Math.max(0.2, S.dMax), 0, 1);
+  const x1 = G.cx - (G.aMin + f * (G.aMax - G.aMin));
+  const y2 = G.cy + (G.bMin + f * (G.bMax - G.bMin));
+  fk1.setAttribute('transform', `translate(${x1.toFixed(1)} ${G.cy})`);
+  fk2.setAttribute('transform', `translate(${G.cx} ${y2.toFixed(1)}) rotate(-90)`);
+
+  const lvl = hasData ? computeLevel(d, level) : 'idle';
+  if (lvl !== level) setLevel(lvl);
+  placeBubbles(x1, y2);
+
+  // CS link between the two radios, plus line-of-sight check against the wall
+  linkLayer.style.display = hasData ? '' : 'none';
+  if (hasData) {
+    const p = { x: x1 + 11.5, y: G.cy }, q = { x: G.cx, y: y2 - 11.5 };
+    setLine(linkLine, p, q); setLine(linkGlow, p, q);
+    const hit = firstWallHit(p, q);
+    wallHit.style.display = hit ? '' : 'none';
+    if (hit) wallHit.setAttribute('transform', `translate(${hit.x.toFixed(1)} ${hit.y})`);
+    const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy) || 1;
+    const mx = (p.x + q.x) / 2 + (dy / len) * 70, my = (p.y + q.y) / 2 - (dx / len) * 70;
+    pill.setAttribute('transform', `translate(${mx.toFixed(1)} ${my.toFixed(1)})`);
+  }
+
+  // HUD
+  const txt = hasData ? d.toFixed(3) : '--';
+  if (txt !== shownDist) { shownDist = txt; $('distVal').textContent = txt; pillText.textContent = txt + ' m'; }
+  const [cls, ctext] = chipState(now);
+  if (cls + ctext !== shownChip) { shownChip = cls + ctext; $('chip').className = 'chip ' + cls; $('chipText').textContent = ctext; }
+  $('readout').classList.toggle('stale', source === 'live' && hasData && now - lastMeas > STALE_MS);
+
+  if (hasData && now - lastHist > 100) { lastHist = now; history.push({ t: now, d }); }
+  while (history.length && now - history[0].t > 31000) history.shift();
+  if (now - lastSpark > 66) { lastSpark = now; drawSpark(now); }
+  if (rawDirty && settingsOpen() && now - lastRaw > 250) { lastRaw = now; renderRaw(); }
+  if (S.showSerial) renderSerialOverlay(now);
+  soundTick(now);
+  requestAnimationFrame(frame);
+}
+function chipState(now) {
+  if (source === 'auto') return ['sim', 'Demo autopilot'];
+  if (source === 'manual') return ['sim', 'Manual control'];
+  if (!serial.connected) return ['', serialAllowed ? 'Dev kit not connected' : hasSerial ? 'Online copy · no USB access' : 'Web Serial unavailable'];
+  if (!hasData || now - lastMeas > STALE_MS) {
+    if (now - lastLineAt < 2000) return ['wait', 'Receiving · no distance found'];
+    return ['wait', hasData ? `No data for ${Math.round((now - lastMeas) / 1000)} s` : 'Connected · waiting for data'];
+  }
+  while (rateTimes.length && now - rateTimes[0] > 3000) rateTimes.shift();
+  return ['live', `Live · ${(rateTimes.length / 3).toFixed(1)} Hz`];
+}
+
+// ---------------------------------------------------------------- sparkline
+const spark = $('spark'), sctx = spark.getContext('2d');
+const LVL_COLOR = { idle: '#7d8894', clear: '#2fd27a', caution: '#ffb020', stop: '#ff4b4b' };
+function drawSpark(now) {
+  const dpr = window.devicePixelRatio || 1, w = spark.clientWidth, h = spark.clientHeight;
+  if (!w || !h) return;
+  if (spark.width !== Math.round(w * dpr) || spark.height !== Math.round(h * dpr)) { spark.width = Math.round(w * dpr); spark.height = Math.round(h * dpr); }
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sctx.clearRect(0, 0, w, h);
+  const top = Math.max(S.dMax * 1.15, 0.5), span = 30000;
+  const Y = v => h - 3 - clamp(v / top, 0, 1) * (h - 6);
+  const yS = Y(S.dStop), yC = Y(S.dCaution);
+  sctx.fillStyle = 'rgba(255,75,75,.12)'; sctx.fillRect(0, yS, w, h - yS);
+  sctx.fillStyle = 'rgba(255,176,32,.09)'; sctx.fillRect(0, yC, w, Math.max(0, yS - yC));
+  sctx.setLineDash([4, 4]); sctx.lineWidth = 1;
+  sctx.strokeStyle = 'rgba(255,176,32,.55)'; sctx.beginPath(); sctx.moveTo(0, yC); sctx.lineTo(w, yC); sctx.stroke();
+  sctx.strokeStyle = 'rgba(255,75,75,.6)'; sctx.beginPath(); sctx.moveTo(0, yS); sctx.lineTo(w, yS); sctx.stroke();
+  sctx.setLineDash([]);
+  if (history.length > 1) {
+    sctx.beginPath();
+    history.forEach((p, i) => { const x = w - ((now - p.t) / span) * w, y = Y(p.d); if (i) sctx.lineTo(x, y); else sctx.moveTo(x, y); });
+    sctx.strokeStyle = LVL_COLOR[level] || '#ccc'; sctx.lineWidth = 2.5; sctx.lineJoin = 'round'; sctx.stroke();
+    const lp = history[history.length - 1];
+    sctx.fillStyle = LVL_COLOR[level] || '#ccc';
+    sctx.beginPath(); sctx.arc(w - ((now - lp.t) / span) * w, Y(lp.d), 4, 0, Math.PI * 2); sctx.fill();
+  }
+}
+
+// ---------------------------------------------------------------- sound
+let actx = null, nextBeep = 0;
+function ensureAudio() {
+  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) {}
+}
+function soundTick(now) {
+  if (!S.sound || !actx || (level !== 'caution' && level !== 'stop') || now < nextBeep) return;
+  const stop = level === 'stop';
+  nextBeep = now + (stop ? 420 : 1100);
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = 'square'; o.frequency.value = stop ? 1150 : 820;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.1, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 0.18);
+}
+
+// ---------------------------------------------------------------- UI wiring
+let toastT;
+function toast(msg, ms = 3500) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+const settingsOpen = () => $('settings').classList.contains('open');
+function toggleSettings(force) {
+  const open = force ?? !settingsOpen();
+  $('settings').classList.toggle('open', open);
+  if (open) { renderRaw(); document.body.classList.remove('idle'); }
+}
+let overlayLast = -Infinity;
+function renderSerialOverlay(now, force = false) {
+  if (!force && now - overlayLast < 100) return;
+  overlayLast = now;
+  const live = source === 'live';
+  const current = live && serial.connected && now - lastLineAt <= STALE_MS;
+  const value = S.serialView === 'history' ? rawLines.slice(-5).join('\n') : S.serialView === 'raw' ? latestSerial : latestMeasurement;
+  $('serialOverlayText').textContent = !live ? 'Simulation mode — no live measurement displayed.' : (value || 'Waiting for serial input…');
+  $('serialOverlayStats').textContent = !live ? '' : `${current ? 'Receiving' : 'Not receiving — last recorded input'} · ${parsedCount} / ${lineCount} lines parsed`;
+}
+function renderRaw() {
+  rawDirty = false;
+  const pre = $('raw');
+  pre.textContent = rawLines.length ? rawLines.join('\n') : (serial.connected ? 'Connected. No lines yet…' : 'Not connected.');
+  pre.scrollTop = pre.scrollHeight;
+  $('rawStats').textContent = lineCount ? `(${parsedCount} of ${lineCount} lines had a distance)` : '';
+}
+function runTest() {
+  const v = $('testLine').value, out = $('testOut'), c = compiled();
+  if (c.err) { out.textContent = c.err; out.className = 'test-out bad'; return; }
+  if (!v.trim()) { out.textContent = 'Paste a line above to check it parses.'; out.className = 'test-out'; return; }
+  const m = parseDistance(v.replace(ANSI, '').trim());
+  out.textContent = m != null ? `→ ${m.toFixed(3)} m` : 'No distance found in this line';
+  out.className = 'test-out ' + (m != null ? 'ok' : 'bad');
+}
+function syncManualUI() { $('manualRange').value = S.manual; $('manVal').textContent = Number(S.manual).toFixed(2) + ' m'; }
+let startDismissed = false;
+function updateStartCard() {
+  $('start').classList.toggle('show', source === 'live' && !serial.connected && !hasData && !startDismissed);
+}
+function applySettings(k) {
+  if (!k || k === 'showSerial' || k === 'serialView' || k === 'serialPosition') {
+    $('serialOverlay').dataset.position = S.serialPosition;
+    $('serialOverlay').hidden = !S.showSerial;
+    if (S.showSerial) renderSerialOverlay(performance.now(), true);
+  }
+  if (!k || k === 'title') $('titleText').textContent = S.title;
+  if (!k || k === 'name1' || k === 'name2') refreshBubbles();
+  if (!k || k === 'dMax') $('manualRange').max = (Math.max(0.2, S.dMax) + 1).toFixed(1);
+  if (!k || k === 'smoothing') $('smVal').textContent = Math.round(S.smoothing * 100) + '%';
+  if (!k || ['parseMode', 'customRegex', 'defaultUnit', 'ignorePattern'].includes(k)) { reCache = null; runTest(); }
+  if (k === 'sound' && S.sound) ensureAudio();
+  if (k === 'baud' && serial.connected) toast('Reconnect (press C) to use the new baud rate.');
+}
+function fillForm() {
+  for (const el of document.querySelectorAll('[data-key]')) {
+    const k = el.dataset.key;
+    if (el.type === 'checkbox') el.checked = !!S[k]; else el.value = S[k];
+  }
+  syncManualUI();
+}
+for (const el of document.querySelectorAll('[data-key]')) {
+  const k = el.dataset.key;
+  const evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'input';
+  el.addEventListener(evt, () => {
+    let v = el.type === 'checkbox' ? el.checked : el.value;
+    if (el.dataset.type === 'num') { v = parseFloat(v); if (!Number.isFinite(v)) return; }
+    S[k] = v; saveSettings(); applySettings(k);
+  });
+}
+$('testLine').addEventListener('input', runTest);
+$('manualRange').addEventListener('input', e => { S.manual = parseFloat(e.target.value); if (source !== 'manual') setSource('manual'); syncManualUI(); saveSettings(); });
+$('sourceSel').addEventListener('change', e => setSource(e.target.value));
+$('btnConnect').addEventListener('click', () => connectSerial());
+$('btnDisconnect').addEventListener('click', async () => { await disconnectSerial(); toast('Disconnected.'); });
+$('startConnect').addEventListener('click', () => connectSerial());
+$('startDemo').addEventListener('click', () => setSource('auto'));
+$('gear').addEventListener('click', () => toggleSettings());
+$('closeSettings').addEventListener('click', () => toggleSettings(false));
+$('btnReset').addEventListener('click', () => { S = { ...DEFAULTS }; saveSettings(); fillForm(); applySettings(); toast('Settings reset.'); });
+
+function nudge(delta) {
+  if (source !== 'manual') setSource('manual');
+  S.manual = +clamp(S.manual + delta, 0, S.dMax + 1).toFixed(2);
+  syncManualUI(); saveSettings();
+}
+addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input, select, textarea')) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'c') connectSerial();
+  else if (k === 's' || k === ',') toggleSettings();
+  else if (k === 'd') setSource(source === 'auto' ? 'live' : 'auto');
+  else if (k === 'm') setSource(source === 'manual' ? 'live' : 'manual');
+  else if (k === 'f') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
+  else if (k === 'l') { S.showSerial = !S.showSerial; saveSettings(); fillForm(); applySettings('showSerial'); }
+  else if (k === 'h') document.body.classList.toggle('clean');
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); nudge(+0.05); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); nudge(-0.05); }
+  else if (e.key === 'Escape') { toggleSettings(false); startDismissed = true; updateStartCard(); }
+  if (S.sound) ensureAudio();
+});
+addEventListener('wheel', e => {
+  if (source !== 'manual' || (e.target.closest && e.target.closest('#settings'))) return;
+  nudge(e.deltaY > 0 ? -0.05 : 0.05);
+}, { passive: true });
+let idleT;
+addEventListener('mousemove', () => {
+  document.body.classList.remove('idle'); clearTimeout(idleT);
+  idleT = setTimeout(() => { if (!settingsOpen() && !$('start').classList.contains('show')) document.body.classList.add('idle'); }, 2500);
+});
+
+if (!serialAllowed) {
+  $('startConnect').hidden = true; $('btnConnect').disabled = true;
+  if (hasSerial) {
+    $('startTitle').textContent = 'Run it with your own boards';
+    $('startNote').textContent = "This online copy can't reach USB ports. Download the page, open the file in Chrome or Edge, then connect the initiator board. Demo autopilot works here.";
+  } else {
+    $('startNote').textContent = "This browser can't reach serial ports. Open this file in Chrome or Edge for live mode; demo autopilot works anywhere.";
+  }
+}
+
+// Hosted copy only: offer the standalone file (published alongside the page) as a download.
+async function setupDownload() {
+  if (serialAllowed || !window.claude || typeof window.claude.use !== 'function') return;
+  let dl = null;
+  try { dl = await window.claude.use('downloads'); } catch (e) {}
+  if (!dl) { $('startNote').textContent += ' To get the file, ask the person who shared this link to send forklift-demo.html.'; return; }
+  for (const id of ['startDownload', 'btnDownload']) {
+    const b = $(id); b.hidden = false;
+    b.addEventListener('click', () => downloadStandalone(dl, b));
+  }
+}
+async function downloadStandalone(dl, btn) {
+  btn.disabled = true;
+  try {
+    const res = await fetch('forklift-demo.html', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    await dl.save({ filename: 'forklift-demo.html', data: await res.text() });
+    toast('Saved. Open forklift-demo.html in Chrome or Edge and press C to connect the board.', 7000);
+  } catch (e) {
+    const code = e && e.code;
+    if (code === 'rate_limited') toast('A save prompt is already open.');
+    else if (code !== 'declined') toast("Couldn't download the page" + (e && e.message ? ` (${e.message})` : '') + '. Try again in a moment.', 6000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+setupDownload();
+
+// Debug/test hook (also handy for scripting a rehearsal from the console)
+window.csDemo = { handleLine, parseDistance, feed, setSource, connectSerial, disconnectSerial, get settings() { return S; }, get state() { return { source, level, hasData, target, display }; } };
+
+fillForm(); applySettings(); setLevel('idle'); updateStartCard();
+autoConnect();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
